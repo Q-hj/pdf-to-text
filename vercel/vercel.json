@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/api/convert", "destination": "/api/convert" },
+    { "source": "/api/bottom-table", "destination": "/api/bottom-table" },
+    { "source": "/api/health", "destination": "/api/health" },
+    { "source": "/(.*)", "destination": "/public/index.html" }
+  ]
+}
