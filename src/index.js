@@ -1,10 +1,13 @@
-import pdf from 'pdf-parse';
 import fs from 'fs/promises';
 import path from 'path';
 import Tesseract from 'tesseract.js';
 import sharp from 'sharp';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const pdf = require('pdf-parse');
 
 const execFileAsync = promisify(execFile);
 
