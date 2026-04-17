@@ -106,13 +106,14 @@ app.post('/convert/bottom-table', upload.single('pdf'), async (req, res) => {
       autoDetect: false
     });
 
-    // 按页分割文本并解析
+    // 按页分割文本并解析（使用位置信息）
     const pageTables = [];
-    const pageTexts = result.pageTexts || splitTextToPages(result.text, result.pages);
+    const pageTextItems = result.pageTextItems || [];
 
-    for (let i = 0; i < pageTexts.length; i++) {
-      const pageText = pageTexts[i];
-      const parsedData = parseTableText(pageText);
+    for (let i = 0; i < pageTextItems.length; i++) {
+      const textItems = pageTextItems[i];
+      const parsedData = parseTableText(textItems);
+      const pageText = result.pageTexts ? result.pageTexts[i] : '';
 
       pageTables.push({
         page: i + 1,
@@ -150,26 +151,24 @@ function splitTextToPages(text, totalPages) {
   return pages;
 }
 
-// 底部表格导出 Excel API（目标格式）- 使用PDF原生文本
+// 底部表格导出 Excel API（合并右上角编号提取）
 app.post('/export/bottom-table-excel', upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '请上传 PDF 文件' });
     }
 
-    // 直接提取PDF原生文本（不使用OCR）
+    // 提取底部表格数据（使用位置解析，同时包含右上角编号）
     const result = await pdfToText(req.file.buffer, {
       splitPages: true,
       autoDetect: false
     });
 
-    // 按页分割文本并解析
-    const pageTexts = result.pageTexts || splitTextToPages(result.text, result.pages);
-
+    const pageTextItems = result.pageTextItems || [];
     const pageTables = [];
-    for (let i = 0; i < pageTexts.length; i++) {
-      const pageText = pageTexts[i];
-      const parsedData = parseTableText(pageText);
+    for (let i = 0; i < pageTextItems.length; i++) {
+      const textItems = pageTextItems[i];
+      const parsedData = parseTableText(textItems);
       pageTables.push({
         page: i + 1,
         tableData: parsedData
@@ -183,8 +182,8 @@ app.post('/export/bottom-table-excel', upload.single('pdf'), async (req, res) =>
 
     const worksheet = workbook.addWorksheet('提取结果');
 
-    // 实际图纸表格字段
-    const headers = ['序号', '管线号', '材料等级', '管道级别', '设计温度', '操作温度', '设计压力', '操作压力', '保温类型', '保温厚度', '刷漆', '比例', '图号', '版次'];
+    // 实际图纸表格字段（底部表格 + 项目号）
+    const headers = ['序号', '管线号', '材料等级', '管道级别', '设计温度', '操作温度', '设计压力', '操作压力', '保温类型', '保温厚度', '刷漆', '比例', '图号', '项目号'];
     worksheet.columns = headers.map(h => ({ header: h, key: h, width: 15 }));
 
     // 设置表头样式
@@ -199,10 +198,9 @@ app.post('/export/bottom-table-excel', upload.single('pdf'), async (req, res) =>
     pageTables.forEach((pageItem, index) => {
       const rowData = { 序号: index + 1 };
 
-      // 直接从 tableData 中匹配对应的值
+      // 从 tableData 中匹配对应的值（包括右上角编号）
       if (pageItem.tableData && pageItem.tableData.length > 0) {
         pageItem.tableData.forEach(item => {
-          // 直接使用key匹配
           if (headers.includes(item.key)) {
             rowData[item.key] = item.value;
           }
@@ -380,55 +378,36 @@ app.post('/convert/multi-region', upload.single('pdf'), async (req, res) => {
   }
 });
 
-// 多区域 Excel 导出 API
+// 多区域 Excel 导出 API（合并右上角区域OCR + 底部表格 + 项目号）
 app.post('/export/multi-excel', upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '请上传 PDF 文件' });
     }
 
-    const lang = req.query.lang || 'chi_sim+eng';
+    // 1. 使用位置解析提取底部表格 + 项目号
+    const result = await pdfToText(req.file.buffer, {
+      splitPages: true,
+      autoDetect: false
+    });
 
-    // 解析区域配置
-    let regions = [];
-    if (req.body?.regions) {
-      regions = JSON.parse(req.body.regions);
-    } else {
-      // 默认右上角 + 底部
-      regions = [
-        { position: 'top-right', name: '编号' },
-        { position: 'bottom-center', name: '说明文字' }
-      ];
+    const pageTextItems = result.pageTextItems || [];
+    const pageTables = [];
+    for (let i = 0; i < pageTextItems.length; i++) {
+      const textItems = pageTextItems[i];
+      const parsedData = parseTableText(textItems);
+      pageTables.push({
+        page: i + 1,
+        tableData: parsedData
+      });
     }
 
-    const result = await pdfMultiRegionToText(req.file.buffer, regions, { lang });
-
-    // 解析底部文字，提取键值对
-    const allKeys = new Set();
-    const parsedData = [];
-
-    result.pageResults.forEach(pageItem => {
-      const rowData = { page: pageItem.page };
-
-      pageItem.regions.forEach(regionItem => {
-        const regionName = regions[regionItem.regionIndex]?.name || regionItem.position;
-        const text = regionItem.text || '';
-
-        if (regionName === '编号' || regionItem.position === 'top-right') {
-          // 编号区域直接作为一列
-          rowData['编号'] = text.trim();
-        } else {
-          // 底部文字解析键值对
-          const pairs = parseKeyValuePairs(text);
-          pairs.forEach(pair => {
-            rowData[pair.key] = pair.value;
-            allKeys.add(pair.key);
-          });
-        }
-      });
-
-      parsedData.push(rowData);
-    });
+    // 2. 使用OCR提取右上角区域（与区域提取API一致）
+    const lang = req.query.lang || 'chi_sim+eng';
+    const rightTopResult = await pdfRegionToText(req.file.buffer, {
+      position: 'top-right'
+    }, { lang });
+    const rightTopTexts = rightTopResult.pageResults || [];
 
     // 创建 Excel 工作簿
     const workbook = new ExcelJS.Workbook();
@@ -437,16 +416,9 @@ app.post('/export/multi-excel', upload.single('pdf'), async (req, res) => {
 
     const worksheet = workbook.addWorksheet('提取结果');
 
-    // 设置列 - 编号 + 所有键值对的键
-    const sortedKeys = Array.from(allKeys).sort();
-    const columns = [
-      { header: '编号', key: '编号', width: 15 }
-    ];
-    sortedKeys.forEach(key => {
-      columns.push({ header: key, key: key, width: 20 });
-    });
-
-    worksheet.columns = columns;
+    // 表头：底部表格字段 + 项目号 + 右上角区域内容
+    const headers = ['序号', '管线号', '材料等级', '管道级别', '设计温度', '操作温度', '设计压力', '操作压力', '保温类型', '保温厚度', '刷漆', '比例', '图号', '项目号', '右上角区域'];
+    worksheet.columns = headers.map(h => ({ header: h, key: h, width: 15 }));
 
     // 设置表头样式
     worksheet.getRow(1).font = { bold: true };
@@ -456,18 +428,30 @@ app.post('/export/multi-excel', upload.single('pdf'), async (req, res) => {
       fgColor: { argb: 'FFE0E0E0' }
     };
 
-    // 添加数据
-    parsedData.forEach(rowData => {
-      const row = { 编号: rowData['编号'] || '' };
-      sortedKeys.forEach(key => {
-        row[key] = rowData[key] || '';
-      });
-      worksheet.addRow(row);
+    // 添加数据行
+    pageTables.forEach((pageItem, index) => {
+      const rowData = { 序号: index + 1 };
+
+      // 底部表格数据 + 项目号
+      if (pageItem.tableData && pageItem.tableData.length > 0) {
+        pageItem.tableData.forEach(item => {
+          if (headers.includes(item.key)) {
+            rowData[item.key] = item.value;
+          }
+        });
+      }
+
+      // 右上角区域OCR内容（对应页面）
+      if (rightTopTexts[index] && rightTopTexts[index].text) {
+        rowData['右上角区域'] = rightTopTexts[index].text.trim();
+      }
+
+      worksheet.addRow(rowData);
     });
 
     // 设置响应头
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=pdf_export_${Date.now()}.xlsx`);
+    res.setHeader('Content-Disposition', `attachment; filename=multi_region_export_${Date.now()}.xlsx`);
 
     // 写入响应
     await workbook.xlsx.write(res);

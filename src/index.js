@@ -55,21 +55,32 @@ export async function pdfToText(input, options = {}) {
   let textResult = null;
   let needsOCR = ocr;
   let pageTexts = [];
+  let pageTextItems = []; // 保存每页的文本项（含位置信息）
 
   if (!ocr && autoDetect) {
     try {
-      // 使用 pagerender 逐页提取文本
+      // 使用 pagerender 逐页提取文本，同时保存位置信息
       const pageTextsArr = [];
+      const pageItemsArr = [];
       const data = await pdf(dataBuffer, {
         pagerender: async function(pageData) {
           const textContent = await pageData.getTextContent();
           const text = textContent.items.map(item => item.str).join('');
           pageTextsArr.push(text);
+          // 保存每个文本项及其位置信息
+          pageItemsArr.push(textContent.items.map(item => ({
+            str: item.str,
+            x: item.transform[4],
+            y: item.transform[5],
+            width: item.width,
+            height: item.height
+          })));
           return text;
         }
       });
       textResult = data;
       pageTexts = pageTextsArr;
+      pageTextItems = pageItemsArr;
 
       const textContent = data.text || '';
       const textLength = textContent.trim().length;
@@ -84,18 +95,27 @@ export async function pdfToText(input, options = {}) {
       console.log('PDF 解析失败，启用 OCR...');
     }
   } else if (!ocr) {
-    // 使用 pagerender 逐页提取文本
+    // 使用 pagerender 逐页提取文本，同时保存位置信息
     const pageTextsArr = [];
+    const pageItemsArr = [];
     const data = await pdf(dataBuffer, {
       pagerender: async function(pageData) {
         const textContent = await pageData.getTextContent();
         const text = textContent.items.map(item => item.str).join('');
         pageTextsArr.push(text);
+        pageItemsArr.push(textContent.items.map(item => ({
+          str: item.str,
+          x: item.transform[4],
+          y: item.transform[5],
+          width: item.width,
+          height: item.height
+        })));
         return text;
       }
     });
     textResult = data;
     pageTexts = pageTextsArr;
+    pageTextItems = pageItemsArr;
   }
 
   if (needsOCR) {
@@ -132,6 +152,7 @@ export async function pdfToText(input, options = {}) {
     text: textResult.text,
     pages: textResult.numpages,
     pageTexts: pageTexts, // 直接使用 pagerender 提取的逐页文本
+    pageTextItems: pageTextItems, // 包含位置信息的文本项数组
     metadata: {
       info: textResult.info,
       version: textResult.version,
@@ -141,6 +162,7 @@ export async function pdfToText(input, options = {}) {
 
   if (!splitPages) {
     delete result.pageTexts;
+    delete result.pageTextItems;
   }
 
   return result;
@@ -487,6 +509,17 @@ function calculateCropRegion(position, custom, imageWidth, imageHeight, margin =
         width: regionWidth,
         height: regionHeight
       };
+    case 'top-right-small':
+      // 右上角小区域，仅提取图纸编号（英文项目号）
+      // 定位到项目号区域：右侧15-25%，顶部5-8%（对应"21212-DD"位置）
+      const smallWidth = Math.round(effectiveWidth * 10 / 100);
+      const smallHeight = Math.round(effectiveHeight * 3 / 100);
+      return {
+        left: effectiveRight - Math.round(effectiveWidth * 25 / 100),
+        top: effectiveTop + Math.round(effectiveHeight * 5 / 100),
+        width: smallWidth,
+        height: smallHeight
+      };
     case 'top-left':
       return {
         left: effectiveLeft,
@@ -590,123 +623,114 @@ function getPositionPercent(position) {
 }
 
 /**
- * 解析表格文本为键值对（使用 PDF 原生文本）
- * 格式：管线号材料等级管道级别设计温度操作温度设计压力操作压力版次
- * 如：71-25-N7-UC4421-1A1N-N1A1NGC2704010.7A1
- * 期望输出：管线号=71-25-N7-UC4421-1A1N-N, 材料等级=1A1N, 管道级别=GC2, 设计温度=70, 操作温度=40, 设计压力=1, 操作压力=0.7, 版次=A1
- * @param {string} text - PDF 提取的文本
+ * 解析表格文本为键值对（基于位置信息提取）
+ * 使用PDF文本项的x/y坐标定位各字段值
+ * @param {Array} textItems - PDF提取的文本项数组（含位置信息）
  * @returns {Array} - [{key: '管线号', value: '71-25-N7-UC4421-1A1N-N'}, ...]
  */
-function parseTableText(text) {
-  if (!text || !text.trim()) return [];
+function parseTableText(textItems) {
+  if (!textItems || textItems.length === 0) return [];
 
-  // 固定的中文表头顺序（根据 demo.xlsx）
-  const chineseHeaders = [
-    '管线号', '材料等级', '管道级别', '设计温度', '操作温度',
-    '设计压力', '操作压力', '保温类型', '保温厚度', '刷漆', '比例', '图号', '版次'
-  ];
+  // 字段配置：字段名 + x坐标范围（用于定位值）
+  // 基于PDF实际布局：
+  // - 底部表格数据行 y≈54
+  // - 比例/图号值在顶部区域 y≈31（表头在y≈37）
+  // - 右上角页码区域 y≈37，x≈1538-1594
+  const fieldConfigs = {
+    // 底部表格字段（y坐标约54）
+    '管线号': { minY: 50, maxY: 60, minX: 250, maxX: 450, pattern: /^71-\d+-N7-UC\d+-[A-Z0-9]+-N$/ },
+    '材料等级': { minY: 50, maxY: 60, minX: 480, maxX: 520 },
+    '管道级别': { minY: 50, maxY: 60, minX: 560, maxX: 600, pattern: /^GC\d$/ },
+    '设计温度': { minY: 50, maxY: 60, minX: 640, maxX: 680 },
+    '操作温度': { minY: 50, maxY: 60, minX: 720, maxX: 760 },
+    '设计压力': { minY: 50, maxY: 60, minX: 800, maxX: 860 },
+    '操作压力': { minY: 50, maxY: 60, minX: 880, maxX: 920 },
+    '保温类型': { minY: 50, maxY: 60, minX: 940, maxX: 1000 },
+    '保温厚度': { minY: 50, maxY: 60, minX: 1020, maxX: 1080 },
+    '刷漆': { minY: 50, maxY: 60, minX: 1100, maxX: 1160 },
+    // 顶部区域字段（比例和图号，值在y≈31，表头在y≈37）
+    '比例': { minY: 28, maxY: 35, minX: 1200, maxX: 1260, excludePatterns: ['SCALE', '比例', 'N/A'] },
+    '图号': { minY: 28, maxY: 35, minX: 1265, maxX: 1350, excludePatterns: ['DWG', '图号', 'N/A'] },
+    // 右上角项目号区域（英文编号如"21212-DD"）
+    '项目号': { minY: 90, maxY: 96, minX: 1580, maxX: 1610 }
+  };
 
-  // 搜索管线号模式（71-25-N7-UC4421-XXX-XXX）
-  const lineNoPattern = /71-\d+-N7-UC\d+-[A-Z0-9]+-N/;
-  const lineNoMatch = text.match(lineNoPattern);
-
-  if (!lineNoMatch) return [];
-
-  // 提取管线号
-  const lineNo = lineNoMatch[0];
-
-  // 找到管线号后的数据字符串
-  // 例如: 1A1NGC2704010.7A1
-  const afterLineNo = text.substring(lineNoMatch.index + lineNo.length);
-
-  // 解析数据格式: 材料等级 + 管道级别 + 设计温度 + 操作温度 + 设计压力 + 操作压力 + 版次
-  // 材料等级：字母数字组合，通常是4字符 (如 1A1N, 1A1L 等)
-  // 优先匹配4字符模式，如果没有则匹配3字符模式
-  let spec = '';
-  const specMatch4 = afterLineNo.match(/^([A-Z]?\d[A-Z]\d[A-Z])/);
-  if (specMatch4) {
-    spec = specMatch4[1];
-  } else {
-    const specMatch3 = afterLineNo.match(/^([A-Z]?\d[A-Z]\d)/);
-    if (specMatch3) {
-      spec = specMatch3[1];
-    }
-  }
-
-  // 管道级别：GC + 数字 (如 GC2)
-  const remaining1 = afterLineNo.substring(spec.length);
-  const gradeMatch = remaining1.match(/^GC\d/);
-  const grade = gradeMatch ? gradeMatch[0] : '';
-
-  // 设计温度：固定2位数字 (如 70)
-  const remaining2 = remaining1.substring(grade.length);
-  const desTmpMatch = remaining2.match(/^(\d{2})/);
-  const desTmp = desTmpMatch ? desTmpMatch[1] : '';
-
-  // 操作温度：固定2位数字 (如 40)
-  const remaining3 = remaining2.substring(desTmp.length);
-  const opeTmpMatch = remaining3.match(/^(\d{2})/);
-  const opeTmp = opeTmpMatch ? opeTmpMatch[1] : '';
-
-  // 设计压力：整数或小数 (如 1)
-  // 操作压力：通常以0.开头的小数 (如 0.7)
-  // 数据格式可能是: 10.7 (设计压力=1, 操作压力=0.7) 或 10.70.7 等
-  const remaining4 = remaining3.substring(opeTmp.length);
-  let desPr = '';
-  let opePr = '';
-
-  // 查找版次A的位置来确定压力字段边界
-  const revPos = remaining4.indexOf('A');
-  if (revPos > 0) {
-    const pressurePart = remaining4.substring(0, revPos);
-
-    // 尝试匹配格式：整数 + 0.X 小数 (如 10.7 → 设计压力=1, 操作压力=0.7)
-    const pattern1 = pressurePart.match(/^(\d)0\.(\d+)$/);
-    if (pattern1) {
-      desPr = pattern1[1];
-      opePr = '0.' + pattern1[2];
-    } else {
-      // 尝试匹配格式：整数 + 小数 (如 10.7 → 可能是设计压力=10, 操作压力=0.7)
-      // 或者格式：两个数拼接 (如 1.0.7)
-      const parts = pressurePart.split('.');
-      if (parts.length >= 2) {
-        // 第一个数字作为设计压力
-        desPr = parts[0];
-        // 剩余部分作为操作压力 (拼接回去)
-        if (parts.length === 2) {
-          // 如果只有两部分，需要判断
-          // 如果第二部分以0开头，可能是操作压力的整数部分
-          if (parts[1].startsWith('0')) {
-            // 不太合理，可能是设计压力有小数
-            desPr = pressurePart;
-          } else {
-            // parts[1]可能是操作压力的整数部分(如7)，需要加0.前缀
-            opePr = '0.' + parts[1];
-          }
-        } else if (parts.length >= 3) {
-          // 多个小数点，拼接中间部分
-          opePr = '0.' + parts.slice(1).join('.');
-        }
-      } else {
-        // 无小数点，全部作为设计压力
-        desPr = pressurePart;
-      }
-    }
-  }
-
-  // 版次：字母+数字 (如 A1)
-  const remaining6 = remaining4.substring(desPr.length + opePr.length);
-  const revMatch = remaining6.match(/^A\d/);
-  const rev = revMatch ? revMatch[0] : '';
-
-  // 组合结果（保温类型、保温厚度、刷漆、比例、图号暂无数据）
-  const values = [lineNo, spec, grade, desTmp, opeTmp, desPr, opePr, '', '', '', '', '', rev];
+  // 移除版次字段（不需要）
 
   const result = [];
-  for (let i = 0; i < chineseHeaders.length; i++) {
+  const fields = ['管线号', '材料等级', '管道级别', '设计温度', '操作温度',
+                  '设计压力', '操作压力', '保温类型', '保温厚度', '刷漆', '比例', '图号', '项目号'];
+
+  // 先找出底部数据行（包含管线号的行）
+  let dataLineY = null;
+  for (const item of textItems) {
+    if (item.str.match(/^71-\d+-N7-UC\d+-[A-Z0-9]+-N$/)) {
+      dataLineY = item.y;
+      break;
+    }
+  }
+
+  if (!dataLineY) return [];
+
+  // 根据实际数据行y坐标调整字段配置
+  const adjustedConfigs = {};
+  for (const [field, config] of Object.entries(fieldConfigs)) {
+    adjustedConfigs[field] = {
+      ...config,
+      minY: dataLineY - 5,
+      maxY: dataLineY + 5
+    };
+  }
+
+  // 比例、图号、页码保持顶部区域配置
+  adjustedConfigs['比例'] = fieldConfigs['比例'];
+  adjustedConfigs['图号'] = fieldConfigs['图号'];
+  adjustedConfigs['项目号'] = fieldConfigs['项目号'];
+
+  // 按字段提取值
+  for (const field of fields) {
+    const config = adjustedConfigs[field];
+    let value = '';
+
+    // 找出符合位置条件的文本项
+    const matchingItems = textItems.filter(item => {
+      const yMatch = item.y >= config.minY && item.y <= config.maxY;
+      const xMatch = item.x >= config.minX && item.x <= config.maxX;
+      return yMatch && xMatch && item.str.trim().length > 0;
+    });
+
+    if (matchingItems.length > 0) {
+      // 如果有pattern要求，优先匹配pattern
+      if (config.pattern) {
+        const patternMatch = matchingItems.find(item => item.str.match(config.pattern));
+        if (patternMatch) {
+          value = patternMatch.str.trim();
+        } else {
+          value = matchingItems[0].str.trim();
+        }
+      } else if (config.excludePatterns) {
+        // 过滤掉排除模式（表头文本等）
+        const filteredItems = matchingItems.filter(item =>
+          !config.excludePatterns.some(pattern => item.str.includes(pattern))
+        );
+        if (filteredItems.length > 0) {
+          // 对于图号，可能需要拼接多个文本项（如"PD-DW07-"和"21200")
+          value = filteredItems.map(item => item.str.trim()).join('');
+        }
+      } else {
+        // 取第一个匹配项作为值
+        value = matchingItems[0].str.trim();
+      }
+    }
+
+    // 过滤掉表头文本（如"材料等级"、"设计温度"等）
+    if (fields.includes(value)) {
+      value = '';
+    }
+
     result.push({
-      key: chineseHeaders[i],
-      value: values[i] || ''
+      key: field,
+      value: value
     });
   }
 
