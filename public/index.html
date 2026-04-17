@@ -1,0 +1,1253 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF 转 文本</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: linear-gradient(135deg, #e4e8fb 0%, #faf4f8 100%);
+        min-height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px;
+      }
+
+      .container {
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        max-width: 1200px;
+        width: 100%;
+        padding: 40px;
+      }
+
+      h1 {
+        text-align: center;
+        color: #333;
+        margin-bottom: 20px;
+        font-size: 28px;
+      }
+
+      /* 模式切换 */
+      .mode-tabs {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 25px;
+        justify-content: center;
+      }
+
+      .mode-tab {
+        padding: 12px 24px;
+        border: 2px solid #667eea;
+        border-radius: 8px;
+        background: white;
+        color: #667eea;
+        font-size: 16px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+
+      .mode-tab:hover {
+        background: #f0f2ff;
+      }
+
+      .mode-tab.active {
+        background: #667eea;
+        color: white;
+      }
+
+      .upload-area {
+        border: 2px dashed #667eea;
+        border-radius: 12px;
+        padding: 40px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s;
+        background: #f8f9ff;
+      }
+
+      .upload-area:hover {
+        border-color: #764ba2;
+        background: #f0f2ff;
+      }
+
+      .upload-area.dragover {
+        border-color: #764ba2;
+        background: #e8ebff;
+      }
+
+      .upload-icon {
+        font-size: 48px;
+        color: #667eea;
+        margin-bottom: 15px;
+      }
+
+      .upload-text {
+        color: #666;
+        font-size: 16px;
+      }
+
+      .file-input {
+        display: none;
+      }
+
+      .file-name {
+        margin-top: 15px;
+        color: #333;
+        font-weight: 500;
+      }
+
+      /* 选项区域 */
+      .options-area {
+        margin-top: 15px;
+        padding: 15px;
+        background: #f8f9ff;
+        border-radius: 8px;
+      }
+
+      .options-title {
+        font-size: 14px;
+        color: #666;
+        margin-bottom: 10px;
+        font-weight: 600;
+      }
+
+      .option-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 8px 0;
+      }
+
+      .option-row input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+      }
+
+      .option-row label {
+        color: #333;
+        font-size: 14px;
+      }
+
+      .lang-select,
+      .position-select {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        font-size: 14px;
+        min-width: 120px;
+      }
+
+      .ocr-badge {
+        background: #ff9800;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        margin-left: 5px;
+      }
+
+      /* 自定义区域输入 */
+      .custom-region {
+        margin-top: 10px;
+        padding: 10px;
+        background: #fff3e0;
+        border-radius: 6px;
+        display: none;
+      }
+
+      .custom-region.show {
+        display: block;
+      }
+
+      .custom-row {
+        display: flex;
+        gap: 10px;
+        margin: 5px 0;
+        align-items: center;
+      }
+
+      .custom-input {
+        width: 60px;
+        padding: 5px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        text-align: center;
+      }
+
+      .custom-label {
+        font-size: 12px;
+        color: #666;
+        width: 50px;
+      }
+
+      /* 按钮 */
+      .convert-btn {
+        display: block;
+        width: 100%;
+        padding: 15px;
+        margin-top: 20px;
+        background: linear-gradient(135deg, #a1aee4 0%, #bba1d6 100%);
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 18px;
+        cursor: pointer;
+        transition:
+          transform 0.2s,
+          box-shadow 0.2s;
+      }
+
+      .convert-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+      }
+
+      .convert-btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
+      /* 结果区域 */
+      .result-area {
+        margin-top: 30px;
+        display: none;
+      }
+
+      .result-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+
+      .result-title {
+        color: #333;
+        font-size: 18px;
+      }
+
+      .copy-btn {
+        padding: 8px 16px;
+        background: #667eea;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+      }
+
+      .copy-btn:hover {
+        background: #5a6fd6;
+      }
+
+      .export-btn {
+        padding: 8px 16px;
+        background: #28a745;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        margin-left: 10px;
+      }
+
+      .export-btn:hover {
+        background: #218838;
+      }
+
+      .export-btn:disabled {
+        background: #ccc;
+        cursor: not-allowed;
+      }
+
+      .result-buttons {
+        display: flex;
+        gap: 10px;
+      }
+
+      .result-content {
+        background: #f5f5f5;
+        border-radius: 12px;
+        padding: 20px;
+        min-height: 200px;
+        max-height: 500px;
+        overflow-y: auto;
+        font-family: "Courier New", monospace;
+        font-size: 14px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #333;
+      }
+
+      .page-item {
+        background: white;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 15px;
+        border-left: 4px solid #667eea;
+      }
+
+      .page-header {
+        font-weight: 600;
+        color: #667eea;
+        margin-bottom: 10px;
+      }
+
+      .page-text {
+        color: #333;
+        line-height: 1.5;
+      }
+
+      .metadata {
+        margin-top: 15px;
+        padding: 15px;
+        background: #e8ebff;
+        border-radius: 8px;
+        font-size: 14px;
+        color: #555;
+      }
+
+      .metadata-item {
+        margin: 5px 0;
+      }
+
+      .loading {
+        display: none;
+        text-align: center;
+        padding: 20px;
+      }
+
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 10px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .error {
+        color: #e74c3c;
+        text-align: center;
+        padding: 15px;
+        background: #ffeaea;
+        border-radius: 8px;
+        margin-top: 20px;
+        display: none;
+      }
+
+      .mode-panel {
+        display: none;
+      }
+
+      .mode-panel.active {
+        display: block;
+      }
+
+      /* 多区域配置 */
+      .multi-regions-config {
+        margin-top: 15px;
+      }
+
+      .region-config-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 10px 0;
+        padding: 10px;
+        background: #fff;
+        border-radius: 6px;
+        border: 1px solid #ddd;
+      }
+
+      .region-label {
+        font-weight: 600;
+        color: #667eea;
+        min-width: 50px;
+      }
+
+      .multi-position {
+        padding: 6px 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+
+      .multi-name {
+        padding: 6px 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        width: 150px;
+      }
+
+      .remove-region-btn {
+        padding: 4px 10px;
+        background: #e74c3c;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      .remove-region-btn:hover {
+        background: #c0392b;
+      }
+
+      /* 表格样式 */
+      .result-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .result-table th {
+        background: linear-gradient(135deg, #b3beee 0%, #d7bbf2 100%);
+        color: white;
+        padding: 12px 15px;
+        text-align: left;
+        font-weight: 600;
+      }
+
+      .result-table td {
+        padding: 12px 15px;
+        border-bottom: 1px solid #eee;
+        color: #333;
+      }
+
+      .result-table tr:last-child td {
+        border-bottom: none;
+      }
+
+      .result-table tr:nth-child(even) {
+        background: #f8f9ff;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>PDF 转 文本</h1>
+
+      <!-- 模式切换 -->
+      <div class="mode-tabs">
+        <button class="mode-tab" data-mode="region">区域提取</button>
+        <button class="mode-tab" data-mode="bottom-table">底部表格</button>
+        <button class="mode-tab active" data-mode="multi">多区域提取</button>
+        <button class="mode-tab" data-mode="full">全文转换</button>
+      </div>
+
+      <!-- 上传区域 -->
+      <div class="upload-area" id="uploadArea">
+        <div class="upload-icon">📄</div>
+        <div class="upload-text">点击或拖拽 PDF 文件到这里上传</div>
+        <div class="file-name" id="fileName"></div>
+        <input type="file" class="file-input" id="fileInput" accept=".pdf" />
+      </div>
+
+      <!-- 全文转换模式 -->
+      <div class="mode-panel" id="fullPanel">
+        <div class="options-area">
+          <div class="options-title">OCR 设置（用于扫描版 PDF）</div>
+          <div class="option-row">
+            <input type="checkbox" id="splitPages" />
+            <label for="splitPages">按页分割显示</label>
+          </div>
+          <div class="option-row">
+            <input type="checkbox" id="forceOcr" />
+            <label for="forceOcr"
+              >强制使用 OCR <span class="ocr-badge">较慢</span></label
+            >
+          </div>
+          <div class="option-row">
+            <label for="ocrLang">识别语言：</label>
+            <select id="ocrLang" class="lang-select">
+              <option value="eng">仅英文</option>
+              <option value="chi_sim+eng">中文+英文</option>
+              <option value="chi_sim">仅中文</option>
+              <option value="chi_tra+eng">繁体中文+英文</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- 区域提取模式 -->
+      <div class="mode-panel active" id="regionPanel">
+        <div class="options-area">
+          <div class="options-title">区域设置</div>
+          <div class="option-row">
+            <label for="position">提取位置：</label>
+            <select id="position" class="position-select">
+              <option value="top-right">右上角</option>
+              <option value="top-left">左上角</option>
+              <option value="bottom-right">右下角</option>
+              <option value="bottom-left">左下角</option>
+              <option value="bottom-center">底部居中</option>
+              <option value="bottom-table">底部表格（表头+数据）</option>
+              <option value="center">中心</option>
+              <option value="custom">自定义区域</option>
+            </select>
+          </div>
+          <div class="option-row">
+            <label for="regionLang">识别语言：</label>
+            <select id="regionLang" class="lang-select">
+              <option value="eng">仅英文</option>
+              <option value="chi_sim+eng">中文+英文</option>
+              <option value="chi_sim">仅中文</option>
+              <option value="chi_tra+eng">繁体中文+英文</option>
+            </select>
+          </div>
+
+          <!-- 自定义区域 -->
+          <div class="custom-region" id="customRegion">
+            <div class="options-title">自定义区域（百分比 0-100）</div>
+            <div class="custom-row">
+              <span class="custom-label">X 起点:</span>
+              <input
+                type="number"
+                id="customX"
+                class="custom-input"
+                value="70"
+                min="0"
+                max="100"
+              />
+              <span class="custom-label">Y 起点:</span>
+              <input
+                type="number"
+                id="customY"
+                class="custom-input"
+                value="0"
+                min="0"
+                max="100"
+              />
+            </div>
+            <div class="custom-row">
+              <span class="custom-label">宽度:</span>
+              <input
+                type="number"
+                id="customW"
+                class="custom-input"
+                value="30"
+                min="1"
+                max="100"
+              />
+              <span class="custom-label">高度:</span>
+              <input
+                type="number"
+                id="customH"
+                class="custom-input"
+                value="20"
+                min="1"
+                max="100"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 多区域提取模式 -->
+      <div class="mode-panel" id="multiPanel">
+        <div class="options-area">
+          <div class="options-title">多区域设置（同时提取多个区域）</div>
+          <div class="option-row">
+            <label for="multiLang">识别语言：</label>
+            <select id="multiLang" class="lang-select">
+              <option value="eng">仅英文</option>
+              <option value="chi_sim+eng" selected>中文+英文</option>
+              <option value="chi_sim">仅中文</option>
+              <option value="chi_tra+eng">繁体中文+英文</option>
+            </select>
+          </div>
+          <div class="multi-regions-config" id="multiRegionsConfig">
+            <div class="region-config-item" data-index="0">
+              <span class="region-label">区域1：</span>
+              <select class="multi-position" data-index="0">
+                <option value="top-right" selected>右上角</option>
+                <option value="top-left">左上角</option>
+                <option value="bottom-right">右下角</option>
+                <option value="bottom-left">左下角</option>
+                <option value="center">中心</option>
+              </select>
+              <input
+                type="text"
+                class="multi-name"
+                data-index="0"
+                placeholder="名称（如：编号）"
+                value="编号"
+              />
+              <button
+                type="button"
+                class="remove-region-btn"
+                onclick="removeRegion(0)"
+                style="display: none"
+              >
+                删除
+              </button>
+            </div>
+            <div class="region-config-item" data-index="1">
+              <span class="region-label">区域2：</span>
+              <select class="multi-position" data-index="1">
+                <option value="top-right">右上角</option>
+                <option value="top-left">左上角</option>
+                <option value="bottom-right">右下角</option>
+                <option value="bottom-left">左下角</option>
+                <option value="bottom-center" selected>底部居中</option>
+                <option value="center">中心</option>
+              </select>
+              <input
+                type="text"
+                class="multi-name"
+                data-index="1"
+                placeholder="名称（如：文字）"
+                value="说明文字"
+              />
+              <button
+                type="button"
+                class="remove-region-btn"
+                onclick="removeRegion(1)"
+                style="display: none"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            id="addRegionBtn"
+            style="
+              margin-top: 10px;
+              padding: 8px 16px;
+              background: #667eea;
+              color: white;
+              border: none;
+              border-radius: 4px;
+              cursor: pointer;
+            "
+          >
+            + 添加区域
+          </button>
+        </div>
+      </div>
+
+      <!-- 底部表格模式 -->
+      <div class="mode-panel" id="bottomTablePanel">
+        <div class="options-area">
+          <div class="options-title">底部表格提取（表头行 + 数据行）</div>
+          <div class="option-row">
+            <label for="tableLang">识别语言：</label>
+            <select id="tableLang" class="lang-select">
+              <option value="eng">仅英文</option>
+              <option value="chi_sim+eng" selected>中文+英文</option>
+              <option value="chi_sim">仅中文</option>
+              <option value="chi_tra+eng">繁体中文+英文</option>
+            </select>
+          </div>
+          <div
+            class="option-row"
+            style="font-size: 13px; color: #666; margin-top: 10px"
+          >
+            <span
+              >说明：提取底部表格区域，第一行作为表头（如：管线号、材料等级），第二行作为对应数据值，以表格形式展示。</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <button class="convert-btn" id="convertBtn" disabled>开始转换</button>
+
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div id="loadingText">正在转换...</div>
+      </div>
+
+      <div class="error" id="error"></div>
+
+      <div class="result-area" id="resultArea">
+        <div class="result-header">
+          <span class="result-title" id="resultTitle">转换结果</span>
+          <div class="result-buttons">
+            <button class="copy-btn" id="copyBtn">复制全部</button>
+            <button class="export-btn" id="exportBtn">导出 Excel</button>
+          </div>
+        </div>
+        <div class="result-content" id="resultContent"></div>
+        <div class="metadata" id="metadata"></div>
+      </div>
+    </div>
+
+    <script>
+      // 元素引用
+      const uploadArea = document.getElementById("uploadArea");
+      const fileInput = document.getElementById("fileInput");
+      const fileName = document.getElementById("fileName");
+      const convertBtn = document.getElementById("convertBtn");
+      const loading = document.getElementById("loading");
+      const loadingText = document.getElementById("loadingText");
+      const error = document.getElementById("error");
+      const resultArea = document.getElementById("resultArea");
+      const resultContent = document.getElementById("resultContent");
+      const resultTitle = document.getElementById("resultTitle");
+      const metadata = document.getElementById("metadata");
+      const copyBtn = document.getElementById("copyBtn");
+      const exportBtn = document.getElementById("exportBtn");
+
+      // 全文模式元素
+      const splitPages = document.getElementById("splitPages");
+      const forceOcr = document.getElementById("forceOcr");
+      const ocrLang = document.getElementById("ocrLang");
+
+      // 区域模式元素
+      const position = document.getElementById("position");
+      const regionLang = document.getElementById("regionLang");
+      const customRegion = document.getElementById("customRegion");
+      const customX = document.getElementById("customX");
+      const customY = document.getElementById("customY");
+      const customW = document.getElementById("customW");
+      const customH = document.getElementById("customH");
+
+      // 模式切换
+      const modeTabs = document.querySelectorAll(".mode-tab");
+      const fullPanel = document.getElementById("fullPanel");
+      const regionPanel = document.getElementById("regionPanel");
+      const multiPanel = document.getElementById("multiPanel");
+      const bottomTablePanel = document.getElementById("bottomTablePanel");
+
+      let currentMode = "multi";
+      let selectedFile = null;
+      let regionCount = 2;
+
+      // 模式切换事件
+      modeTabs.forEach((tab) => {
+        tab.addEventListener("click", () => {
+          modeTabs.forEach((t) => t.classList.remove("active"));
+          tab.classList.add("active");
+          currentMode = tab.dataset.mode;
+
+          fullPanel.classList.toggle("active", currentMode === "full");
+          regionPanel.classList.toggle("active", currentMode === "region");
+          multiPanel.classList.toggle("active", currentMode === "multi");
+          bottomTablePanel.classList.toggle(
+            "active",
+            currentMode === "bottom-table",
+          );
+        });
+      });
+
+      // 位置选择变化
+      position.addEventListener("change", () => {
+        customRegion.classList.toggle("show", position.value === "custom");
+      });
+
+      // 上传区域事件
+      uploadArea.addEventListener("click", () => fileInput.click());
+
+      fileInput.addEventListener("change", (e) => {
+        if (e.target.files.length > 0) {
+          selectedFile = e.target.files[0];
+          fileName.textContent = `已选择: ${selectedFile.name}`;
+          convertBtn.disabled = false;
+        }
+      });
+
+      uploadArea.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        uploadArea.classList.add("dragover");
+      });
+
+      uploadArea.addEventListener("dragleave", () => {
+        uploadArea.classList.remove("dragover");
+      });
+
+      uploadArea.addEventListener("drop", (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove("dragover");
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type === "application/pdf") {
+          selectedFile = files[0];
+          fileName.textContent = `已选择: ${selectedFile.name}`;
+          convertBtn.disabled = false;
+        } else {
+          showError("请上传 PDF 文件");
+        }
+      });
+
+      // 转换按钮
+      convertBtn.addEventListener("click", async () => {
+        if (!selectedFile) return;
+
+        loading.style.display = "block";
+        error.style.display = "none";
+        resultArea.style.display = "none";
+        convertBtn.disabled = true;
+
+        try {
+          if (currentMode === "full") {
+            await convertFull();
+          } else if (currentMode === "multi") {
+            await convertMultiRegion();
+          } else if (currentMode === "bottom-table") {
+            await convertBottomTable();
+          } else {
+            await convertRegion();
+          }
+        } catch (err) {
+          showError("请求失败: " + err.message);
+        } finally {
+          loading.style.display = "none";
+          convertBtn.disabled = false;
+        }
+      });
+
+      // 全文转换
+      async function convertFull() {
+        loadingText.textContent = "正在转换...";
+
+        const formData = new FormData();
+        formData.append("pdf", selectedFile);
+
+        const params = new URLSearchParams();
+        if (splitPages.checked) params.append("splitPages", "true");
+        if (forceOcr.checked) params.append("ocr", "true");
+        if (ocrLang.value) params.append("lang", ocrLang.value);
+
+        const paramString = params.toString() ? `?${params.toString()}` : "";
+        const response = await fetch(`/convert${paramString}`, {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          displayFullResult(data);
+        } else {
+          showError(data.error || "转换失败");
+        }
+      }
+
+      // 区域提取
+      async function convertRegion() {
+        loadingText.textContent = "正在提取指定区域...";
+
+        const formData = new FormData();
+        formData.append("pdf", selectedFile);
+
+        const params = new URLSearchParams();
+        params.append("position", position.value);
+        params.append("lang", regionLang.value);
+
+        // 自定义区域
+        if (position.value === "custom") {
+          formData.append(
+            "custom",
+            JSON.stringify({
+              x: parseInt(customX.value),
+              y: parseInt(customY.value),
+              width: parseInt(customW.value),
+              height: parseInt(customH.value),
+            }),
+          );
+        }
+
+        const response = await fetch(`/convert/region?${params.toString()}`, {
+          method: "POST",
+          body: formData,
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          displayRegionResult(data);
+        } else {
+          showError(data.error || "提取失败");
+        }
+      }
+
+      // 多区域提取
+      async function convertMultiRegion() {
+        loadingText.textContent = "正在提取多个区域...";
+
+        const regions = getMultiRegionConfig();
+        const multiLang = document.getElementById("multiLang").value;
+
+        const formData = new FormData();
+        formData.append("pdf", selectedFile);
+        formData.append("regions", JSON.stringify(regions));
+
+        const params = new URLSearchParams();
+        params.append("lang", multiLang);
+
+        const response = await fetch(
+          `/convert/multi-region?${params.toString()}`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
+
+        const data = await response.json();
+
+        if (data.success) {
+          displayMultiRegionResult(data);
+        } else {
+          showError(data.error || "提取失败");
+        }
+      }
+
+      // 底部表格提取
+      async function convertBottomTable() {
+        loadingText.textContent = "正在提取底部表格...";
+
+        const formData = new FormData();
+        formData.append("pdf", selectedFile);
+
+        const tableLang = document.getElementById("tableLang").value;
+        const params = new URLSearchParams();
+        params.append("lang", tableLang);
+
+        const response = await fetch(
+          `/convert/bottom-table?${params.toString()}`,
+          {
+            method: "POST",
+            body: formData,
+          },
+        );
+
+        const data = await response.json();
+
+        if (data.success) {
+          displayBottomTableResult(data);
+        } else {
+          showError(data.error || "提取失败");
+        }
+      }
+
+      // 获取多区域配置
+      function getMultiRegionConfig() {
+        const items = document.querySelectorAll(".region-config-item");
+        const regions = [];
+        items.forEach((item, idx) => {
+          const posSelect = item.querySelector(".multi-position");
+          const nameInput = item.querySelector(".multi-name");
+          regions.push({
+            position: posSelect.value,
+            name: nameInput.value || `区域${idx + 1}`,
+          });
+        });
+        return regions;
+      }
+
+      // 显示多区域结果
+      function displayMultiRegionResult(data) {
+        resultTitle.textContent = `多区域提取结果 (${data.regions.length}个区域)`;
+        resultArea.style.display = "block";
+
+        if (data.pageResults && data.pageResults.length > 0) {
+          let html = "";
+          data.pageResults.forEach((pageItem) => {
+            html += `<div class="page-item">
+              <div class="page-header">第 ${pageItem.page} 页</div>`;
+            pageItem.regions.forEach((regionItem) => {
+              const regionName =
+                data.regions[regionItem.regionIndex]?.name ||
+                regionItem.position;
+              html += `<div style="margin:8px 0;padding:8px;background:#f0f2ff;border-radius:4px;">
+                <strong>${regionName}:</strong> ${escapeHtml(regionItem.text) || "(无内容)"}
+              </div>`;
+            });
+            html += `</div>`;
+          });
+          resultContent.innerHTML = html;
+        } else {
+          resultContent.innerHTML = `<div class="page-text">(无内容)</div>`;
+        }
+
+        let metaHtml = `<div class="metadata-item"><strong>总页数:</strong> ${data.pages}</div>`;
+        metaHtml += `<div class="metadata-item"><strong>提取区域:</strong> ${data.regions.map((r) => r.name || r.position).join(", ")}</div>`;
+        metadata.innerHTML = metaHtml;
+      }
+
+      // 显示底部表格结果（表格形式）
+      function displayBottomTableResult(data) {
+        resultTitle.textContent = "底部表格提取结果";
+        resultArea.style.display = "block";
+
+        if (data.pageTables && data.pageTables.length > 0) {
+          let html = "";
+          data.pageTables.forEach((pageItem) => {
+            html += `<div class="page-item">
+              <div class="page-header">第 ${pageItem.page} 页</div>`;
+
+            if (pageItem.tableData && pageItem.tableData.length > 0) {
+              html += `<table class="result-table">
+                <thead><tr>`;
+              pageItem.tableData.forEach((item) => {
+                html += `<th>${escapeHtml(item.key)}</th>`;
+              });
+              html += `</tr></thead>
+                <tbody><tr>`;
+              pageItem.tableData.forEach((item) => {
+                html += `<td>${escapeHtml(item.value) || "-"}</td>`;
+              });
+              html += `</tr></tbody></table>`;
+            } else {
+              html += `<div style="padding:10px;color:#666;">未能解析表格数据</div>`;
+              html += `<div style="padding:10px;background:#f5f5f5;font-size:12px;"><strong>原始文本:</strong><br>${escapeHtml(pageItem.rawText) || "(无内容)"}</div>`;
+            }
+
+            html += `</div>`;
+          });
+          resultContent.innerHTML = html;
+        } else {
+          resultContent.innerHTML = `<div class="page-text">(无内容)</div>`;
+        }
+
+        metadata.innerHTML = `<div class="metadata-item"><strong>总页数:</strong> ${data.pages}</div>
+        <div class="metadata-item"><strong>提取位置:</strong> 底部表格区域</div>`;
+      }
+
+      // 添加区域
+      document.getElementById("addRegionBtn").addEventListener("click", () => {
+        const container = document.getElementById("multiRegionsConfig");
+        const index = regionCount;
+        const newItem = document.createElement("div");
+        newItem.className = "region-config-item";
+        newItem.dataset.index = index;
+        newItem.innerHTML = `
+          <span class="region-label">区域${index + 1}：</span>
+          <select class="multi-position" data-index="${index}">
+            <option value="top-right">右上角</option>
+            <option value="top-left">左上角</option>
+            <option value="bottom-right">右下角</option>
+            <option value="bottom-left">左下角</option>
+            <option value="bottom-center">底部居中</option>
+            <option value="center">中心</option>
+          </select>
+          <input type="text" class="multi-name" data-index="${index}" placeholder="名称" />
+          <button type="button" class="remove-region-btn" onclick="removeRegion(${index})">删除</button>
+        `;
+        container.appendChild(newItem);
+        regionCount++;
+        updateRemoveButtons();
+      });
+
+      // 删除区域
+      window.removeRegion = function (index) {
+        const item = document.querySelector(
+          `.region-config-item[data-index="${index}"]`,
+        );
+        if (item) {
+          item.remove();
+          updateRegionLabels();
+          updateRemoveButtons();
+        }
+      };
+
+      // 更新区域标签
+      function updateRegionLabels() {
+        const items = document.querySelectorAll(".region-config-item");
+        items.forEach((item, idx) => {
+          const label = item.querySelector(".region-label");
+          label.textContent = `区域${idx + 1}：`;
+        });
+      }
+
+      // 更新删除按钮显示
+      function updateRemoveButtons() {
+        const items = document.querySelectorAll(".region-config-item");
+        items.forEach((item) => {
+          const btn = item.querySelector(".remove-region-btn");
+          btn.style.display = items.length > 1 ? "block" : "none";
+        });
+      }
+
+      // 初始化删除按钮
+      updateRemoveButtons();
+
+      // 显示全文结果
+      function displayFullResult(data) {
+        resultTitle.textContent = "全文转换结果";
+        resultArea.style.display = "block";
+
+        if (data.pageTexts && data.pageTexts.length > 0) {
+          let html = "";
+          data.pageTexts.forEach((text, i) => {
+            html += `<div class="page-item">
+            <div class="page-header">第 ${i + 1} 页</div>
+            <div class="page-text">${escapeHtml(text) || "(无内容)"}</div>
+          </div>`;
+          });
+          resultContent.innerHTML = html;
+        } else {
+          resultContent.innerHTML = `<div class="page-text">${escapeHtml(data.text) || "(无文本内容)"}</div>`;
+        }
+
+        let metaHtml = `<div class="metadata-item"><strong>总页数:</strong> ${data.pages}</div>`;
+        if (data.metadata?.ocrUsed) {
+          metaHtml += `<div class="metadata-item"><strong>OCR:</strong> 已使用</div>`;
+        }
+        metadata.innerHTML = metaHtml;
+      }
+
+      // 显示区域结果
+      function displayRegionResult(data) {
+        resultTitle.textContent = `区域提取结果 (${data.position})`;
+        resultArea.style.display = "block";
+
+        if (data.pageResults && data.pageResults.length > 0) {
+          let html = "";
+          data.pageResults.forEach((item, i) => {
+            html += `<div class="page-item">
+            <div class="page-header">第 ${item.page} 页 ${item.region?.percent ? `(${item.region.percent.x}%,${item.region.percent.y}%)` : ""}</div>
+            <div class="page-text">${escapeHtml(item.text) || "(无内容)"}</div>
+          </div>`;
+          });
+          resultContent.innerHTML = html;
+        } else {
+          resultContent.innerHTML = `<div class="page-text">${escapeHtml(data.summary) || "(无内容)"}</div>`;
+        }
+
+        metadata.innerHTML = `<div class="metadata-item"><strong>总页数:</strong> ${data.pages}</div>
+        <div class="metadata-item"><strong>提取位置:</strong> ${data.position}</div>`;
+      }
+
+      function escapeHtml(text) {
+        if (!text) return "";
+        const div = document.createElement("div");
+        div.textContent = text;
+        return div.innerHTML;
+      }
+
+      function showError(msg) {
+        error.textContent = msg;
+        error.style.display = "block";
+      }
+
+      // 复制文本
+      copyBtn.addEventListener("click", () => {
+        const text = resultContent.textContent;
+        navigator.clipboard.writeText(text).then(() => {
+          copyBtn.textContent = "已复制!";
+          setTimeout(() => (copyBtn.textContent = "复制全部"), 1500);
+        });
+      });
+
+      // 导出 Excel
+      exportBtn.addEventListener("click", async () => {
+        if (!selectedFile) return;
+
+        exportBtn.disabled = true;
+        exportBtn.textContent = "导出中...";
+
+        try {
+          const formData = new FormData();
+          formData.append("pdf", selectedFile);
+
+          let response;
+
+          if (currentMode === "multi") {
+            // 多区域导出
+            const regions = getMultiRegionConfig();
+            const multiLang = document.getElementById("multiLang").value;
+            formData.append("regions", JSON.stringify(regions));
+
+            const params = new URLSearchParams();
+            params.append("lang", multiLang);
+
+            response = await fetch(`/export/multi-excel?${params.toString()}`, {
+              method: "POST",
+              body: formData,
+            });
+          } else if (currentMode === "bottom-table") {
+            // 底部表格导出（目标格式）
+            const tableLang = document.getElementById("tableLang").value;
+            const params = new URLSearchParams();
+            params.append("lang", tableLang);
+
+            response = await fetch(
+              `/export/bottom-table-excel?${params.toString()}`,
+              {
+                method: "POST",
+                body: formData,
+              },
+            );
+          } else {
+            // 单区域或全文导出
+            const params = new URLSearchParams();
+            params.append("mode", currentMode);
+
+            if (currentMode === "region") {
+              params.append("position", position.value);
+              params.append("lang", regionLang.value);
+              if (position.value === "custom") {
+                formData.append(
+                  "custom",
+                  JSON.stringify({
+                    x: parseInt(customX.value),
+                    y: parseInt(customY.value),
+                    width: parseInt(customW.value),
+                    height: parseInt(customH.value),
+                  }),
+                );
+              }
+            } else {
+              params.append("lang", ocrLang.value);
+            }
+
+            response = await fetch(`/export/excel?${params.toString()}`, {
+              method: "POST",
+              body: formData,
+            });
+          }
+
+          if (!response.ok) {
+            throw new Error("导出失败");
+          }
+
+          // 下载文件
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = `pdf_export_${Date.now()}.xlsx`;
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+
+          exportBtn.textContent = "已导出!";
+          setTimeout(() => (exportBtn.textContent = "导出 Excel"), 1500);
+        } catch (err) {
+          showError("导出失败: " + err.message);
+          exportBtn.textContent = "导出 Excel";
+        } finally {
+          exportBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
